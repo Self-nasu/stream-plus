@@ -1,0 +1,42 @@
+/{project_id}/
+│
+├── org/
+│   ├── {videoID}/
+│   │   ├── {original_filename}   <-- Original uploaded video file
+│
+├── converted/
+│   ├── {videoID}/
+│   │   ├── master.m3u8          <-- Master HLS playlist
+│   │   ├── 240p/
+│   │   │   ├── segment001.ts
+│   │   │   ├── segment002.ts
+│   │   │   ├── output.m3u8      <-- Playlist for 240p resolution
+│   │   │
+│   │   ├── 360p/
+│   │   │   ├── segment001.ts
+│   │   │   ├── segment002.ts
+│   │   │   ├── output.m3u8      <-- Playlist for 360p resolution
+│   │   │
+│   │   ├── 480p/
+│   │   │   ├── segment001.ts
+│   │   │   ├── segment002.ts
+│   │   │   ├── output.m3u8      <-- Playlist for 480p resolution
+│   │   │
+│   │   ├── 720p/
+│   │   │   ├── segment001.ts
+│   │   │   ├── segment002.ts
+│   │   │   ├── output.m3u8      <-- Playlist for 720p resolution
+│   │   │
+│   │   ├── 1080p/
+│   │   │   ├── segment001.ts
+│   │   │   ├── segment002.ts
+│   │   │   ├── output.m3u8      <-- Playlist for 1080p resolution
+
+
+{
+  "videoID": "video123",
+  "projectID": "project456",
+  "filePath": "project456/original/video123.mp4",
+  "resolution": "all",
+  "from": "video-processing-a"
+}

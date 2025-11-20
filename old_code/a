@@ -1,0 +1,55 @@
+[1mdiff --git a/MongoDB/ReadMe.md b/MongoDB/ReadMe.md[m
+[1mindex 448a679..9801c4a 100644[m
+[1m--- a/MongoDB/ReadMe.md[m
+[1m+++ b/MongoDB/ReadMe.md[m
+[36m@@ -201,3 +201,8 @@[m [mdb.admins.getIndexes()[m
+   { $set: { "lastVideoCount": 0 } },[m
+   { upsert: true }[m
+ )[m
+[32m+[m
+[32m+[m
+[32m+[m[32mfor going in docker[m[41m [m
+[32m+[m
+[32m+[m[32msudo docker exec -it mongodb mongosh[m
+[1mdiff --git a/Serv-Kafka/video-processing-a.js b/Serv-Kafka/video-processing-a.js[m
+[1mindex 233f65d..e0cc351 100644[m
+[1m--- a/Serv-Kafka/video-processing-a.js[m
+[1m+++ b/Serv-Kafka/video-processing-a.js[m
+[36m@@ -14,7 +14,7 @@[m [mconst kafka = new Kafka({[m
+ [m
+ const consumer = kafka.consumer({[m
+   groupId: "video-processing-a",[m
+[31m-  sessionTimeout: 150000000, // Increased timeout[m
+[32m+[m[32m  sessionTimeout: 1500000, // Increased timeout[m
+ });[m
+ [m
+ const producer = kafka.producer();[m
+[36m@@ -79,6 +79,7 @@[m [masync function processVideo(videoID, projectID, filePath, msgResolutions, retryC[m
+       await updateProcessingStatus(videoID, projectID, res.name, "processing");[m
+       await convertToHLS(localInputPath, res, path.join(outputDir, "segment%03d.ts"), path.join(outputDir, "output.m3u8"));[m
+       await updateProcessingStatus(videoID, projectID, res.name, "completed");[m
+[32m+[m[32m      // await consumer.heartbeat();[m
+       processedDirs.push(outputDir);[m
+     } catch (error) {[m
+       console.error(`❌ Failed to process ${res.name} for ${videoID}:`, error);[m
+[1mdiff --git a/Serv-Kafka/video-processing-b.js b/Serv-Kafka/video-processing-b.js[m
+[1mindex 79118b4..2290607 100644[m
+[1m--- a/Serv-Kafka/video-processing-b.js[m
+[1m+++ b/Serv-Kafka/video-processing-b.js[m
+[36m@@ -13,7 +13,7 @@[m [mconst kafka = new Kafka({[m
+ [m
+ const consumer = kafka.consumer({ [m
+   groupId: "video-processing-b",[m
+[31m-  sessionTimeout: 150000000, // Increased session timeout[m
+[32m+[m[32m  sessionTimeout: 1500000, // Increased session timeout[m
+ });[m
+ const producer = kafka.producer();[m
+ [m
+[36m@@ -79,6 +79,7 @@[m [masync function processVideo(videoID, projectID, filePath, msgResolutions, heartb[m
+       await updateProcessingStatus(videoID, projectID, res.name, "processing");[m
+       await convertToHLS(localInputPath, res, path.join(outputDir, "segment%03d.ts"), path.join(outputDir, "output.m3u8"));[m
+       await updateProcessingStatus(videoID, projectID, res.name, "completed");[m
+[32m+[m[32m      // await consumer.heartbeat();[m
+       processedDirs.push(outputDir);[m
+     } catch (error) {[m
+       console.error(`❌ Failed to process ${res.name} for ${videoID}:`, error);[m
