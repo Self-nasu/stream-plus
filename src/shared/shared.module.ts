@@ -6,6 +6,6 @@ import { AzureBlobService } from './services/azure-blob/azure-blob.service';
 @Global()
 @Module({
   providers: [KafkaService, AzureBlobService],
-  exports: [KafkaService],
+  exports: [KafkaService, AzureBlobService],
 })
 export class SharedModule {}

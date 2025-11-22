@@ -5,9 +5,10 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { OrganizationDocument } from '../schemas/organization.interface';
 import { CreateOrganizationDto } from './dto/create-organization.dto/create-organization.dto';
+import { OrgResponseDto } from './dto/org-response.dto/org-response.dto';
 import { hash as bcryptHash } from 'bcrypt';
 import { randomBytes } from 'crypto';
 
@@ -46,12 +47,15 @@ export class OrganizationService {
    */
   async createOrganization(
     dto: CreateOrganizationDto,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<OrgResponseDto> {
     const { email, password, name } = dto;
 
     // Hash password (salt rounds: 10). Tune as needed.
     const saltRounds = 10;
-    const passwordHash = await bcryptHash(password, saltRounds);
+    // `bcryptHash` has weak typing in some package versions; cast to a
+    // properly-typed function to avoid ESLint `no-unsafe-call`/assignment.
+    const hashFn = bcryptHash as (s: string, rounds: number) => Promise<string>;
+    const passwordHash = await hashFn(password, saltRounds);
 
     // Generate API key
     const apiKey = this.generateApiKey();
@@ -78,16 +82,32 @@ export class OrganizationService {
     });
 
     try {
-      const saved = await doc.save();
-      const savedObj = saved.toObject();
+      // `doc.save()` returns a Mongoose document typed as `OrganizationDocument`.
+      const saved = (await doc.save()) as OrganizationDocument;
 
-      // Create a shallow clone and remove `passwordHash` to avoid unused-local
-      // destructuring warnings while not mutating the original Mongoose document.
-      type SafeObj = Record<string, unknown> & { passwordHash?: unknown };
-      const safe = JSON.parse(JSON.stringify(savedObj)) as SafeObj;
-      delete safe.passwordHash;
+      // Build a typed response DTO so callers (controller) don't need to
+      // perform unsafe casts. Convert `_id` to string when present.
+      let id = '';
+      if (saved._id instanceof Types.ObjectId) {
+        id = saved._id.toHexString();
+      } else if (typeof saved._id === 'string') {
+        id = saved._id;
+      } else if (saved.id) {
+        id = String(saved.id);
+      }
 
-      return safe;
+      const response: OrgResponseDto = {
+        id,
+        email: saved.email,
+        apiKey: saved.apiKey,
+        name: saved.name ?? '',
+        videoProcessConfig: saved.videoProcessConfig,
+        streamConfig: saved.streamConfig,
+        createdAt: saved.createdAt,
+        updatedAt: saved.updatedAt,
+      };
+
+      return response;
     } catch (err: unknown) {
       if (isMongoDuplicateError(err)) {
         const kp = err.keyPattern;

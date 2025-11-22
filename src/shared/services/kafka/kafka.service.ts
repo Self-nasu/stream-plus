@@ -16,7 +16,7 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(KafkaService.name);
 
   constructor() {
-    const brokers = (process.env.KAFKA_BROKERS || 'localhost:9092').split(',');
+    const brokers = (process.env.KAFKA_BROKERS || 'localhost:9094').split(',');
     const clientId = process.env.KAFKA_CLIENT_ID || 'stream-plus';
     this.kafka = new Kafka({ clientId, brokers });
   }
@@ -26,6 +26,39 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     await this.producer.connect();
     this.producerConnected = true;
     this.logger.log('Kafka producer connected');
+    
+    // Ensure required topics exist
+    await this.ensureTopic('video-processing-a', 3);
+  }
+
+  /**
+   * Ensure a topic exists with proper configuration for single-broker setup
+   * @param topic Topic name
+   * @param numPartitions Number of partitions (default: 3)
+   */
+  async ensureTopic(topic: string, numPartitions: number = 3) {
+    const admin = await this.getAdmin();
+    try {
+      const topics = await admin.listTopics();
+      if (!topics.includes(topic)) {
+        await admin.createTopics({
+          topics: [
+            {
+              topic,
+              numPartitions,
+              replicationFactor: 1, // Single broker = replication factor 1
+            },
+          ],
+        });
+        this.logger.log(`Created topic: ${topic} with ${numPartitions} partitions`);
+      } else {
+        this.logger.log(`Topic already exists: ${topic}`);
+      }
+    } catch (error) {
+      this.logger.error(`Error ensuring topic ${topic}:`, error);
+    } finally {
+      await admin.disconnect();
+    }
   }
 
   async produce(topic: string, message: object) {
@@ -92,5 +125,17 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
 
   public isConnected(): boolean {
     return !!this.producer && this.producerConnected;
+  }
+
+  async getAdmin() {
+    const admin = this.kafka.admin();
+    await admin.connect();
+    return admin;
+  }
+
+  async createIndependentConsumer(groupId: string) {
+    const consumer = this.kafka.consumer({ groupId });
+    await consumer.connect();
+    return consumer;
   }
 }

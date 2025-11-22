@@ -8,8 +8,10 @@ import { HealthModule } from './health/health.module';
 import { SharedModule } from './shared/shared.module';
 import { KafkaTestModule } from './kafka-test/kafka-test.module';
 import { StatusModule } from './status/status.module';
-import { ProcessorController } from './processor/processor.controller';
 import { OrganizationModule } from './organization/organization.module';
+import { UploadModule } from './upload/upload.module';
+import { ProcessorModule } from './processor/processor.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -44,8 +46,11 @@ import { OrganizationModule } from './organization/organization.module';
     KafkaTestModule,
     StatusModule,
     OrganizationModule,
+    UploadModule,
+    ProcessorModule,
+    AdminModule,
   ],
-  controllers: [ProcessorController],
+  controllers: [],
   providers: [],
 })
 export class AppModule {}

@@ -3,7 +3,7 @@ import { Document } from 'mongoose';
 
 export interface OrganizationDocument extends Document {
   email: string;
-  passwordHash: string;
+  passwordHash: any;
   apiKey: string;
   videoProcessConfig: {
     '240p': boolean;
