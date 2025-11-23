@@ -45,32 +45,10 @@ export class StreamService {
         // So if video exists it's either true or false.
         throw new NotFoundException('Video not found');
     }
-
-    // The old code logic:
-    // videostate = video.converted
-    // masterBlobPath = video.masterFilePath (which seems to be derived or stored)
-    // In new schema we have `filePath` which is the original upload path.
-    // We need to know where the converted files are.
-    // Old code `getVideoPath` returns `masterFilePath`.
-    // In new schema, we assume `filePath` is the source. 
-    // Where is the output? 
-    // `upload.service.ts` says: `blobPath = ${projectID}/${videoID}/${newFileName}`
-    // And `SPLIT_VIDEO` task is sent.
-    // We assume the processor puts it in `converted` folder?
-    // Let's look at `streamHelper.js`: 
-    // `getVideoPath` returns `masterFilePath`.
-    // `getQualityVideoPath` does `masterFilePath.replace('/converted/', /converted/${quality}/')`
-    // So `masterFilePath` likely contains `/converted/`.
-    
-    // In the NEW architecture, we need to know where the HLS master playlist is.
-    // Usually it's `.../converted/master.m3u8` relative to the video root?
-    // Or maybe we should construct it.
-    // Let's assume standard path: `${projectID}/${videoID}/converted/master.m3u8`
-    // If `converted` is true.
     
     if (video.converted) {
         const blobDir = path.dirname(video.filePath); // projectID/videoID
-        const masterBlobPath = `${blobDir}/converted/master.m3u8`;
+        const masterBlobPath = `${blobDir}/master.m3u8`;
         
         const streamEncrypt = this.configService.get<boolean>('streamEncrypt');
         let videoURL: string;
@@ -108,7 +86,7 @@ export class StreamService {
 
     if (video.converted) {
         const blobDir = path.dirname(video.filePath);
-        const qualityBlobPath = `${blobDir}/converted/${quality}/output.m3u8`;
+        const qualityBlobPath = `${blobDir}/${quality}/output.m3u8`;
         
         const streamEncrypt = this.configService.get<boolean>('streamEncrypt');
         let videoURL: string;
@@ -137,6 +115,9 @@ export class StreamService {
   }
 
   async streamFile(pathOrEncrypted: string, userIP: string, userAgent: string, isEncrypted: boolean) {
+    if (!pathOrEncrypted) {
+        throw new BadRequestException('Path is required');
+    }
     let blobPath: string;
     
     if (isEncrypted) {
@@ -171,28 +152,34 @@ export class StreamService {
         const streamEncrypt = this.configService.get<boolean>('streamEncrypt');
 
         if (blobPath.includes('master.m3u8')) {
+            // Master playlist: rewrite quality playlist paths (e.g., "240p/output.m3u8")
             const basePath = path.dirname(blobPath);
-            const updatedContent = fileContent.replace(/(.*\.m3u8)/g, (relativePath) => {
-                const r_path = `${basePath}/${relativePath}`;
+            // Match .m3u8 files that appear after a newline (actual playlist entries, not in #EXT-X-STREAM-INF)
+            const updatedContent = fileContent.replace(/^([^\n#].*\.m3u8)$/gm, (match, relativePath) => {
+                // relativePath is like "240p/output.m3u8"
+                const fullPath = `${basePath}/${relativePath.trim()}`;
                 if (streamEncrypt) {
-                    const encryptedr_path = this.cryptoService.encryptFilePath(r_path);
-                    return `/stream/${encodeURIComponent(encryptedr_path)}`;
+                    const encryptedPath = this.cryptoService.encryptFilePath(fullPath);
+                    return `/stream/${encodeURIComponent(encryptedPath)}`;
                 } else {
-                    return `/stream/open/${r_path}`;
+                    return `/stream/open/${fullPath}`;
                 }
             });
             return { content: updatedContent, contentType: 'application/vnd.apple.mpegurl' };
         }
 
         if (blobPath.includes('output.m3u8')) {
+            // Quality playlist: rewrite segment paths (e.g., "segments/segment_0.ts")
             const basePath = path.dirname(blobPath);
-            const updatedContent = fileContent.replace(/(.*\.ts)/g, (segmentPath) => {
-                const r_path = `${basePath}/${segmentPath}`;
+            // Match .ts files that appear after a newline (actual segment entries)
+            const updatedContent = fileContent.replace(/^([^\n#].*\.ts)$/gm, (match, segmentPath) => {
+                // segmentPath is like "segments/segment_0.ts"
+                const fullPath = `${basePath}/${segmentPath.trim()}`;
                 if (streamEncrypt) {
-                    const encryptedr_path = this.cryptoService.encryptFilePath(r_path);
-                    return `/stream/${encodeURIComponent(encryptedr_path)}`;
+                    const encryptedPath = this.cryptoService.encryptFilePath(fullPath);
+                    return `/stream/${encodeURIComponent(encryptedPath)}`;
                 } else {
-                    return `/stream/open/${r_path}`;
+                    return `/stream/open/${fullPath}`;
                 }
             });
             return { content: updatedContent, contentType: 'application/vnd.apple.mpegurl' };

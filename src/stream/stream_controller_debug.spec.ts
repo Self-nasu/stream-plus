@@ -28,9 +28,9 @@ describe('StreamController Wildcard Debug', () => {
   });
 
   it('should correctly extract wildcard path using @Param("0")', async () => {
+    const openPath = 'project/video/master.m3u8';
     const req = { ip: '127.0.0.1', headers: { 'user-agent': 'test' } };
     const res = { setHeader: jest.fn(), send: jest.fn() };
-    const openPath = 'project/video/master.m3u8';
 
     await streamController.streamOpenVideo(openPath, req, res as any);
 

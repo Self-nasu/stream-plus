@@ -49,16 +49,29 @@ export class StreamController {
     return this.sendStreamResponse(res, result);
   }
 
-  @Get('stream/open/*')
+  @Get('stream/open/*path')
   @ApiOperation({ summary: 'Stream unencrypted video content' })
   async streamOpenVideo(
-    @Param('0') openPath: string,
+    @Param('path') openPath: string | string[],
     @Req() req: any,
     @Res() res: Response,
   ) {
-    // Extract the path from the URL, removing '/stream/open/'
-    // const openPath = req.params[0]; 
-    const result = await this.streamService.streamFile(openPath, req.ip, req.headers['user-agent'], false);
+    // Handle path - it may come as array or string depending on NestJS version
+    let finalPath: string;
+    
+    if (Array.isArray(openPath)) {
+      finalPath = openPath.join('/');
+    } else if (openPath) {
+      finalPath = openPath;
+    } else if (req.params.path) {
+      finalPath = Array.isArray(req.params.path) ? req.params.path.join('/') : req.params.path;
+    } else if (req.params[0]) {
+      finalPath = req.params[0];
+    } else {
+      throw new NotFoundException('Path not provided');
+    }
+
+    const result = await this.streamService.streamFile(finalPath, req.ip, req.headers['user-agent'], false);
     return this.sendStreamResponse(res, result);
   }
 
