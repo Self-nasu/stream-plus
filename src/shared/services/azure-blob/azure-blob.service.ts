@@ -70,13 +70,34 @@ export class AzureBlobService {
     localFilePath: string,
     destinationBlobPath: string,
   ): Promise<void> {
+    // Check if file exists before attempting upload
+    try {
+      await fs.promises.access(localFilePath, fs.constants.R_OK);
+    } catch (error) {
+      this.logger.error(
+        `File does not exist or is not readable: ${localFilePath}`,
+      );
+      throw new Error(
+        `Cannot upload file ${localFilePath}: file not found or not readable`,
+      );
+    }
+
     const blockBlobClient: BlockBlobClient =
       this.containerClient.getBlockBlobClient(destinationBlobPath);
     this.logger.log(
       `Uploading local file ${localFilePath} -> ${destinationBlobPath}`,
     );
-    await blockBlobClient.uploadFile(localFilePath);
-    this.logger.log('Upload complete');
+    
+    try {
+      await blockBlobClient.uploadFile(localFilePath);
+      this.logger.log('Upload complete');
+    } catch (error) {
+      this.logger.error(
+        `Failed to upload ${localFilePath} -> ${destinationBlobPath}:`,
+        error,
+      );
+      throw error;
+    }
   }
 
   /** Upload a readable stream to blob. Use this for streaming uploads. */
@@ -142,17 +163,25 @@ export class AzureBlobService {
     const entries = await fs.promises.readdir(localFolderPath, {
       withFileTypes: true,
     });
+    
+    // Collect all upload promises to ensure they all complete
+    const uploadPromises: Promise<void>[] = [];
+    
     for (const entry of entries) {
       const fullPath = path.join(localFolderPath, entry.name);
       const destPath = destinationBlobPath
         ? `${destinationBlobPath}/${entry.name}`
         : entry.name;
       if (entry.isDirectory()) {
-        await this.uploadFolder(fullPath, destPath);
+        uploadPromises.push(this.uploadFolder(fullPath, destPath));
       } else if (entry.isFile()) {
-        await this.uploadFile(fullPath, destPath);
+        uploadPromises.push(this.uploadFile(fullPath, destPath));
       }
     }
+    
+    // Wait for all uploads to complete before returning
+    await Promise.all(uploadPromises);
+    this.logger.log(`Folder upload complete: ${localFolderPath} -> ${destinationBlobPath}`);
   }
 
   /** Check whether a blob exists */

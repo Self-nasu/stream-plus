@@ -43,6 +43,15 @@ export class Video {
 
   @Prop({ default: 0 })
   masterPlaylistVersion: number;
+
+  @Prop()
+  totalChunks: number;
+
+  @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
+  processedChunks: Record<string, number>;
+
+  @Prop({ type: [{ index: Number, startTime: Number, endTime: Number, storagePath: String }] })
+  chunks: { index: number; startTime: number; endTime: number; storagePath: string }[];
 }
 
 export const VideoSchema = SchemaFactory.createForClass(Video);

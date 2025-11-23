@@ -1,7 +1,7 @@
-import { Controller, Get, Post, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Param, UseGuards, NotImplementedException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiSecurity, ApiResponse, ApiParam } from '@nestjs/swagger';
-import { ResolutionConsumerManager } from '../processor/resolution-consumer-manager.service';
 import { ProcessorService } from '../processor/processor.service';
+import { TaskConsumerService } from '../processor/task-consumer.service';
 import { ApiKeyGuard } from '../auth/api-key.guard';
 
 @ApiTags('Admin')
@@ -10,8 +10,8 @@ import { ApiKeyGuard } from '../auth/api-key.guard';
 @Controller('admin')
 export class AdminController {
   constructor(
-    private readonly consumerManager: ResolutionConsumerManager,
     private readonly processorService: ProcessorService,
+    private readonly taskConsumerService: TaskConsumerService,
   ) {}
 
   @Get('stats')
@@ -22,22 +22,10 @@ export class AdminController {
   @ApiResponse({ 
     status: 200, 
     description: 'System statistics retrieved successfully',
-    schema: {
-      example: {
-        activeConsumers: 2,
-        topic: 'video-processing-a',
-        groupId: 'video-processing-group',
-        partitions: [
-          { partition: 0, offset: '100' },
-          { partition: 1, offset: '95' },
-          { partition: 2, offset: '102' }
-        ]
-      }
-    }
   })
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid API key' })
   async getStats() {
-    return this.consumerManager.getStats();
+    return this.taskConsumerService.getStats();
   }
 
   @Post('video/:videoID/stop')

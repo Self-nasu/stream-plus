@@ -139,8 +139,18 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     return admin;
   }
 
-  async createIndependentConsumer(groupId: string) {
-    const consumer = this.kafka.consumer({ groupId });
+  async createIndependentConsumer(
+    groupId: string,
+    options?: {
+      sessionTimeout?: number;
+      heartbeatInterval?: number;
+    }
+  ) {
+    const consumer = this.kafka.consumer({
+      groupId,
+      sessionTimeout: options?.sessionTimeout || 30000,
+      heartbeatInterval: options?.heartbeatInterval || 3000,
+    });
     await consumer.connect();
     return consumer;
   }

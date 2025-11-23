@@ -169,29 +169,15 @@ export class UploadService {
       // Log Upload Event
       await this.logEvent(videoID, projectID, 'upload', 'Video uploaded successfully');
 
-      // Send messages to resolution-specific Kafka topics
-      const kafkaPromises = resolutions.map(resolution => {
-        const topic = `video-processing-${resolution}`;
-        return this.kafkaService.produce(topic, {
-          videoID,
-          projectID,
-          filePath: blobPath,
-          resolution,
-          from: 'upload-service',
-        }).catch(err => {
-          this.logger.error(`Failed to send message to ${topic}:`, err);
-          // Fall back to generic topic
-          return this.kafkaService.produce('video-processing-a', {
-            videoID,
-            projectID,
-            filePath: blobPath,
-            resolutions: [resolution],
-            from: 'upload-service-fallback',
-          });
-        });
+      // Send SPLIT_VIDEO task to video-tasks topic
+      await this.kafkaService.produce('video-tasks', {
+        type: 'SPLIT_VIDEO',
+        videoID,
+        projectID,
+        filePath: blobPath,
+        resolutions,
+        from: 'upload-service',
       });
-
-      await Promise.all(kafkaPromises);
 
       // Mark upload as complete
       this.deduplicationService.completeUpload(projectID, fileName, fileSize);
@@ -228,11 +214,12 @@ export class UploadService {
       throw new BadRequestException('Video not found');
     }
 
-    await this.kafkaService.produce('video-processing-a', {
+    await this.kafkaService.produce('video-tasks', {
+      type: 'SPLIT_VIDEO',
       videoID,
       projectID,
       filePath: video.filePath,
-      resolutions: ['1080p', '720p', '480p', '360p'],
+      resolutions: ['1080p', '720p', '480p', '360p'], // Default resolutions for reprocess
       from: 'reprocess-api',
     });
 

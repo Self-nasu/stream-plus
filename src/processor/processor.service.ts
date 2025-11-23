@@ -26,267 +26,235 @@ const RESOLUTIONS: Resolution[] = [
 @Injectable()
 export class ProcessorService {
   private readonly logger = new Logger(ProcessorService.name);
-  // In a real app, use Redis. For now, in-memory map for cancellation tokens.
   private cancellationTokens = new Map<string, boolean>();
+  private activeProcesses = new Map<string, any[]>(); // videoID -> ChildProcess[]
 
   constructor(
     @InjectModel(Video.name) private videoModel: Model<VideoDocument>,
     private readonly azureBlobService: AzureBlobService,
   ) {}
 
-  async processVideo(job: any) {
-    const { videoID, projectID, filePath, resolution } = job;
+  async processChunk(job: any): Promise<void> {
+    const { videoID, projectID, chunkIndex, chunkPath, resolution } = job;
     
-    // Support both single resolution (new) and multiple resolutions (legacy)
-    const resolutionToProcess = resolution || (job.resolutions && job.resolutions[0]);
-    
-    if (!resolutionToProcess) {
-      this.logger.error(`[${videoID}] No resolution specified in job`);
-      return;
-    }
-
-    this.logger.log(`[${videoID}] Starting ${resolutionToProcess} processing`);
-    this.logger.log(`[${videoID}] Job details: ${JSON.stringify(job)}`);
-
     if (this.isCancelled(videoID)) {
-      this.logger.warn(`[${videoID}] Processing cancelled`);
+      this.logger.warn(`[${videoID}] Processing cancelled, skipping chunk ${chunkIndex}`);
       return;
     }
 
-    const tempDir = path.join(os.tmpdir(), projectID, videoID, 'temp');
+    this.logger.log(`[${videoID}] Processing chunk ${chunkIndex} for ${resolution}`);
+
+    const resConfig = RESOLUTIONS.find((r) => r.name === resolution);
+    if (!resConfig) {
+      throw new Error(`Invalid resolution: ${resolution}`);
+    }
+
+    const tempDir = path.join(os.tmpdir(), projectID, videoID, resolution, `chunk_${chunkIndex}`);
     await fs.promises.mkdir(tempDir, { recursive: true });
 
     const localInputPath = path.join(tempDir, 'input.mp4');
+    const localOutputPath = path.join(tempDir, `segment_${chunkIndex}.ts`);
 
     try {
-      // Step 1: Download video from blob
-      this.logger.log(`[${videoID}] Downloading from blob: ${filePath}`);
-      await this.azureBlobService.downloadToFile(filePath, localInputPath);
-      this.logger.log(`[${videoID}] Download complete`);
+      // Download chunk
+      await this.azureBlobService.downloadToFile(chunkPath, localInputPath);
 
       if (this.isCancelled(videoID)) return;
 
-      // Find resolution config
-      const resConfig = RESOLUTIONS.find((r) => r.name === resolutionToProcess);
-      if (!resConfig) {
-        this.logger.error(`[${videoID}] Invalid resolution: ${resolutionToProcess}`);
-        await this.updateProcessingStatus(videoID, projectID, resolutionToProcess, 'failed');
-        return;
-      }
+      // Transcode chunk to HLS segment
+      await this.transcodeChunk(videoID, localInputPath, localOutputPath, resConfig);
 
-      // Step 2: Process the resolution
-      const outputDir = path.join(tempDir, resConfig.name);
-      await fs.promises.mkdir(outputDir, { recursive: true });
+      // Upload processed segment
+      const blobDestination = `${projectID}/${videoID}/${resolution}/segments/segment_${chunkIndex}.ts`;
+      await this.azureBlobService.uploadFile(localOutputPath, blobDestination);
 
-      try {
-        this.logger.log(`[${videoID}] Converting ${resConfig.name} to HLS`);
-        await this.updateProcessingStatus(videoID, projectID, resConfig.name, 'processing');
-
-        await this.convertToHLS(videoID, localInputPath, resConfig, outputDir);
-
-        await this.updateProcessingStatus(videoID, projectID, resConfig.name, 'completed');
-        this.logger.log(`[${videoID}] ${resConfig.name} conversion complete`);
-      } catch (error) {
-        this.logger.error(`[${videoID}] Failed ${resConfig.name}:`, error);
-        await this.updateProcessingStatus(videoID, projectID, resConfig.name, 'failed');
-        throw error;
-      }
-
-      // Step 3: Get all completed resolutions from database
-      const video = await this.videoModel.findOne({ videoID, projectID });
-      if (!video) {
-        this.logger.error(`[${videoID}] Video not found in database`);
-        return;
-      }
-
-      const completedResolutions = RESOLUTIONS.filter((r) => 
-        video.processingStatus[r.name] === 'completed'
+      // Update progress
+      await this.videoModel.updateOne(
+        { videoID, projectID },
+        { $inc: { [`processedChunks.${resolution}`]: 1 } }
       );
 
-      this.logger.log(
-        `[${videoID}] Completed resolutions: ${completedResolutions.map(r => r.name).join(', ')}`
-      );
+      this.logger.log(`[${videoID}] Chunk ${chunkIndex} (${resolution}) complete`);
 
-      // Step 4: Create master playlist with all completed resolutions
-      if (completedResolutions.length > 0) {
-        this.logger.log(`[${videoID}] Creating master playlist with ${completedResolutions.length} resolution(s)`);
-        
-        // Download existing resolution folders if they exist
-        for (const res of completedResolutions) {
-          if (res.name !== resConfig.name) {
-            // This resolution was processed before, download it
-            const resDir = path.join(tempDir, res.name);
-            await fs.promises.mkdir(resDir, { recursive: true });
-            
-            try {
-              const resBlobPath = `${projectID}/${videoID}/${res.name}`;
-              // Download the output.m3u8 and segments
-              await this.downloadResolutionFiles(resBlobPath, resDir);
-            } catch (error) {
-              this.logger.warn(`[${videoID}] Could not download ${res.name} files:`, error);
-            }
-          }
-        }
-
-        const masterPlaylistPath = this.createMasterPlaylist(tempDir, completedResolutions);
-
-        // Step 5: Upload processed files to blob
-        this.logger.log(`[${videoID}] Uploading ${resConfig.name} files to blob`);
-        const blobDestination = `${projectID}/${videoID}`;
-        
-        // Upload only the current resolution folder and master playlist
-        await this.azureBlobService.uploadFolder(
-          path.join(tempDir, resConfig.name),
-          `${blobDestination}/${resConfig.name}`
-        );
-        
-        // Upload master playlist
-        const masterBlobPath = `${blobDestination}/master.m3u8`;
-        await this.azureBlobService.uploadFile(masterPlaylistPath, masterBlobPath);
-
-        // Step 6: Update video document with all completed resolutions
-        const availableResolutionNames = completedResolutions.map(r => r.name);
-        
-        const updateData: any = {
-          masterFilePath: masterBlobPath,
-          availableResolutions: availableResolutionNames, // Set to all completed resolutions
-          $inc: { masterPlaylistVersion: 1 },
-        };
-
-        // Mark as playable and converted when first resolution is ready
-        if (!video.isPlayable) {
-          updateData.isPlayable = true;
-          updateData.converted = true;
-          this.logger.log(`[${videoID}] 🎉 Video is now playable with ${resConfig.name}!`);
-        }
-
-        await this.videoModel.updateOne(
-          { videoID, projectID },
-          updateData
-        );
-
-        this.logger.log(
-          `[${videoID}] Processing completed successfully. ` +
-          `Available resolutions: ${availableResolutionNames.join(', ')}`
-        );
-      }
     } catch (error) {
-      this.logger.error(`[${videoID}] Processing failed:`, error);
+      if (this.isCancelled(videoID)) {
+        this.logger.warn(`[${videoID}] Chunk ${chunkIndex} cancelled`);
+        return;
+      }
+      this.logger.error(`[${videoID}] Chunk ${chunkIndex} (${resolution}) failed:`, error);
       throw error;
     } finally {
-      // Cleanup temp files
-      try {
-        await fs.promises.rm(tempDir, { recursive: true, force: true });
-        this.logger.log(`[${videoID}] Cleanup complete`);
-      } catch (cleanupError) {
-        this.logger.warn(`[${videoID}] Failed to cleanup temp dir:`, cleanupError);
-      }
-      this.cancellationTokens.delete(videoID);
+      await fs.promises.rm(tempDir, { recursive: true, force: true });
     }
   }
 
-  private async downloadResolutionFiles(blobPath: string, localDir: string): Promise<void> {
-    // For simplicity, we'll skip re-downloading. In production, you'd download the m3u8 and segments
-    // This is acceptable since we're creating a new master playlist each time
-    this.logger.debug(`Skipping download of ${blobPath} (master playlist will reference blob paths)`);
+  async mergeChunks(job: any): Promise<void> {
+    const { videoID, projectID, resolution } = job;
+    
+    if (this.isCancelled(videoID)) {
+      this.logger.warn(`[${videoID}] Merge cancelled`);
+      return;
+    }
+
+    this.logger.log(`[${videoID}] Merging chunks for ${resolution}`);
+
+    const video = await this.videoModel.findOne({ videoID, projectID });
+    if (!video) throw new Error('Video not found');
+
+    const tempDir = path.join(os.tmpdir(), projectID, videoID, resolution, 'merge');
+    await fs.promises.mkdir(tempDir, { recursive: true });
+
+    try {
+      // Generate playlist
+      const playlistPath = path.join(tempDir, 'output.m3u8');
+      let playlistContent = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:60\n#EXT-X-PLAYLIST-TYPE:VOD\n';
+
+      // Sort chunks by index to ensure correct order
+      const sortedChunks = video.chunks.sort((a, b) => a.index - b.index);
+
+      for (const chunk of sortedChunks) {
+        playlistContent += `#EXTINF:60.000,\nsegments/segment_${chunk.index}.ts\n`;
+      }
+
+      playlistContent += '#EXT-X-ENDLIST';
+      await fs.promises.writeFile(playlistPath, playlistContent);
+
+      // Upload playlist
+      const blobPath = `${projectID}/${videoID}/${resolution}/output.m3u8`;
+      await this.azureBlobService.uploadFile(playlistPath, blobPath);
+
+      // Update status
+      await this.videoModel.updateOne(
+        { videoID, projectID },
+        { [`processingStatus.${resolution}`]: 'completed' }
+      );
+
+      this.logger.log(`[${videoID}] Merged ${resolution} successfully`);
+
+    } finally {
+      await fs.promises.rm(tempDir, { recursive: true, force: true });
+    }
   }
 
-  private async convertToHLS(
-    videoID: string,
-    inputFile: string,
-    resolution: Resolution,
-    outputDir: string,
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const segmentPath = path.join(outputDir, 'segment%03d.ts');
-      const outputM3U8 = path.join(outputDir, 'output.m3u8');
+  async finalizeVideo(job: any): Promise<void> {
+    const { videoID, projectID } = job;
+    this.logger.log(`[${videoID}] Finalizing video`);
 
-      const ffmpegArgs = [
-        '-i', inputFile,
+    const video = await this.videoModel.findOne({ videoID, projectID });
+    if (!video) throw new Error('Video not found');
+
+    const completedResolutions = RESOLUTIONS.filter(r => 
+      video.processingStatus?.[r.name] === 'completed'
+    );
+
+    if (completedResolutions.length === 0) {
+      this.logger.warn(`[${videoID}] No completed resolutions to finalize`);
+      return;
+    }
+
+    const tempDir = path.join(os.tmpdir(), projectID, videoID, 'finalize');
+    await fs.promises.mkdir(tempDir, { recursive: true });
+
+    try {
+      const masterPlaylistPath = path.join(tempDir, 'master.m3u8');
+      let playlistContent = '#EXTM3U\n';
+      
+      completedResolutions.forEach((res) => {
+        const bandwidth = parseInt(res.bitrate) * 1000;
+        playlistContent += `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${res.width}x${res.height}\n`;
+        playlistContent += `${res.name}/output.m3u8\n`;
+      });
+
+      await fs.promises.writeFile(masterPlaylistPath, playlistContent);
+
+      const masterBlobPath = `${projectID}/${videoID}/master.m3u8`;
+      await this.azureBlobService.uploadFile(masterPlaylistPath, masterBlobPath);
+
+      await this.videoModel.updateOne(
+        { videoID, projectID },
+        {
+          masterFilePath: masterBlobPath,
+          availableResolutions: completedResolutions.map(r => r.name),
+          isPlayable: true,
+          converted: true,
+          $inc: { masterPlaylistVersion: 1 },
+        }
+      );
+
+      this.logger.log(`[${videoID}] Video finalized successfully`);
+      
+      // Cleanup cancellation token
+      this.cancellationTokens.delete(videoID);
+
+    } finally {
+      await fs.promises.rm(tempDir, { recursive: true, force: true });
+    }
+  }
+
+  private transcodeChunk(videoID: string, input: string, output: string, resolution: Resolution): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const args = [
+        '-i', input,
+        '-threads', `${process.env.FFMPEG_THREADS || '1'}`,
+        '-preset', `${process.env.FFMPEG_PRESET || 'slow'}`,
         '-vf', `scale=${resolution.width}:${resolution.height}`,
         '-c:v', 'h264',
         '-b:v', resolution.bitrate,
         '-c:a', 'aac',
-        '-hls_time', '10',
-        '-hls_playlist_type', 'vod',
-        '-hls_segment_filename', segmentPath,
-        outputM3U8,
+        '-f', 'mpegts',
+        output
       ];
 
-      this.logger.log(`[${videoID}] Running FFmpeg for ${resolution.name}`);
+      const ffmpeg = spawn('ffmpeg', args);
 
-      const ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
+      // Track process
+      if (!this.activeProcesses.has(videoID)) {
+        this.activeProcesses.set(videoID, []);
+      }
+      const processes = this.activeProcesses.get(videoID);
+      if (processes) {
+        processes.push(ffmpeg);
+      }
 
-      // Timeout: Kill FFmpeg if it takes more than 25 minutes
-      const timeout = setTimeout(() => {
-        this.logger.error(`[${videoID}] FFmpeg timeout for ${resolution.name}`);
-        ffmpegProcess.kill('SIGKILL');
-        reject(new Error('Processing Timeout'));
-      }, 25 * 60 * 1000);
+      ffmpeg.on('close', (code) => {
+        // Remove from tracking
+        const processes = this.activeProcesses.get(videoID);
+        if (processes) {
+          const index = processes.indexOf(ffmpeg);
+          if (index > -1) processes.splice(index, 1);
+          if (processes.length === 0) this.activeProcesses.delete(videoID);
+        }
 
-      ffmpegProcess.stderr.on('data', (data) => {
-        // FFmpeg outputs to stderr, log periodically
-        const output = data.toString();
-        if (output.includes('time=')) {
-          this.logger.debug(`[${videoID}] FFmpeg progress: ${output.trim()}`);
+        if (code === 0) resolve();
+        else {
+            // If killed by us, it might have code null or SIGKILL
+            if (this.isCancelled(videoID)) {
+                reject(new Error('Cancelled'));
+            } else {
+                reject(new Error(`FFmpeg transcoding failed with code ${code}`));
+            }
         }
       });
 
-      ffmpegProcess.on('exit', (code) => {
-        clearTimeout(timeout);
-        if (code === 0) {
-          this.logger.log(`[${videoID}] FFmpeg complete for ${resolution.name}`);
-          resolve();
-        } else {
-          reject(new Error(`FFmpeg process failed with exit code ${code}`));
-        }
-      });
-
-      ffmpegProcess.on('error', (error) => {
-        clearTimeout(timeout);
-        reject(error);
-      });
+      ffmpeg.on('error', (err) => reject(err));
     });
-  }
-
-  private createMasterPlaylist(outputDir: string, processedResolutions: Resolution[]): string {
-    const masterPlaylistPath = path.join(outputDir, 'master.m3u8');
-    let playlistContent = '#EXTM3U\n';
-    
-    processedResolutions.forEach((res) => {
-      const bandwidth = parseInt(res.bitrate) * 1000; // Convert to bits
-      playlistContent += `#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${res.width}x${res.height}\n`;
-      playlistContent += `${res.name}/output.m3u8\n`;
-    });
-
-    fs.writeFileSync(masterPlaylistPath, playlistContent);
-    this.logger.log(`Master playlist created at: ${masterPlaylistPath}`);
-    return masterPlaylistPath;
-  }
-
-  private async updateProcessingStatus(
-    videoID: string,
-    projectID: string,
-    resolution: string,
-    status: string,
-  ): Promise<void> {
-    await this.videoModel.updateOne(
-      { videoID, projectID },
-      { [`processingStatus.${resolution}`]: status },
-    );
-    this.logger.log(`[${videoID}] Status updated: ${resolution} -> ${status}`);
   }
 
   cancelProcessing(videoID: string) {
-    this.logger.log(`Requesting cancellation for video: ${videoID}`);
+    this.logger.log(`Cancelling processing for video: ${videoID}`);
     this.cancellationTokens.set(videoID, true);
+    
+    // Kill active processes
+    const processes = this.activeProcesses.get(videoID);
+    if (processes) {
+      this.logger.log(`Killing ${processes.length} active FFmpeg processes for ${videoID}`);
+      processes.forEach(p => p.kill('SIGKILL'));
+      this.activeProcesses.delete(videoID);
+    }
   }
 
-  private isCancelled(videoID: string): boolean {
-    if (this.cancellationTokens.get(videoID)) {
-      this.logger.warn(`Job aborted: ${videoID}`);
-      return true;
-    }
-    return false;
+  isCancelled(videoID: string): boolean {
+    return !!this.cancellationTokens.get(videoID);
   }
 }
+
