@@ -4,6 +4,7 @@ import { UploadService } from './upload.service';
 import { UploadVideoDto } from './dto/upload-video.dto';
 import { ApiConsumes, ApiBody, ApiOperation, ApiTags, ApiSecurity, ApiResponse } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../auth/api-key.guard';
+import { RateLimiterGuard } from './guards/rate-limiter.guard';
 
 @ApiTags('Upload')
 @ApiSecurity('api_key')
@@ -13,9 +14,10 @@ export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
 
   @Post('upload')
+  @UseGuards(RateLimiterGuard)
   @ApiOperation({ 
     summary: 'Upload video file or provide URL',
-    description: 'Upload a video file directly or provide a URL to download. The video will be queued for processing based on organization settings. Requires API key authentication.'
+    description: 'Upload a video file directly or provide a URL to download. The video will be queued for processing based on organization settings. Rate limited to 2 requests per minute per organization. Requires API key authentication.'
   })
   @ApiConsumes('multipart/form-data', 'application/json')
   @ApiBody({
@@ -35,6 +37,17 @@ export class UploadController {
   })
   @ApiResponse({ status: 400, description: 'Either file or videoUrl must be provided' })
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid API key' })
+  @ApiResponse({ 
+    status: 429, 
+    description: 'Rate limit exceeded - Maximum 2 upload requests per minute',
+    schema: {
+      example: {
+        statusCode: 429,
+        message: 'Rate limit exceeded. Maximum 2 upload requests per minute allowed.',
+        retryAfter: 45
+      }
+    }
+  })
   @UseInterceptors(FileInterceptor('file'))
   async uploadVideo(
     @Req() req: any,

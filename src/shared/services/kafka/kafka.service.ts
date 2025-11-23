@@ -28,7 +28,13 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     this.logger.log('Kafka producer connected');
     
     // Ensure required topics exist
-    await this.ensureTopic('video-processing-a', 3);
+    await this.ensureTopic('video-processing-a', 3); // Legacy topic for backward compatibility
+    
+    // Create resolution-specific topics
+    const resolutions = ['240p', '360p', '480p', '720p', '1080p'];
+    for (const resolution of resolutions) {
+      await this.ensureTopic(`video-processing-${resolution}`, 3);
+    }
   }
 
   /**

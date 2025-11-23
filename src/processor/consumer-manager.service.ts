@@ -80,8 +80,19 @@ export class ConsumerManager implements OnModuleInit, OnModuleDestroy {
     await consumer.run({
       eachMessage: async ({ message }) => {
         if (!message.value) return;
-        const job = JSON.parse(message.value.toString());
-        await this.processorService.processVideo(job);
+        
+        const rawMessage = message.value.toString();
+        this.logger.log(`📩 Received Kafka Message: ${rawMessage}`);
+        
+        try {
+          const job = JSON.parse(rawMessage);
+          this.logger.log(`Processing job for video: ${job.videoID}`);
+          await this.processorService.processVideo(job);
+          this.logger.log(`✅ Completed processing for video: ${job.videoID}`);
+        } catch (error) {
+          this.logger.error(`❌ Error processing message:`, error);
+          // Don't throw - let Kafka continue processing other messages
+        }
       },
     });
     this.consumers.push(consumer);

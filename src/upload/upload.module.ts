@@ -6,6 +6,7 @@ import { SharedModule } from '../shared/shared.module';
 import { Video, VideoSchema } from '../schemas/video.schema';
 import { UploadLog, UploadLogSchema } from '../schemas/upload-log.schema';
 import { OrganizationModule } from '../organization/organization.module';
+import { RateLimiterGuard } from './guards/rate-limiter.guard';
 
 @Module({
   imports: [
@@ -17,6 +18,6 @@ import { OrganizationModule } from '../organization/organization.module';
     OrganizationModule,
   ],
   controllers: [UploadController],
-  providers: [UploadService],
+  providers: [UploadService, RateLimiterGuard],
 })
 export class UploadModule {}

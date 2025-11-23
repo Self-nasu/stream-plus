@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiSecurity, ApiResponse, ApiParam } from '@nestjs/swagger';
-import { ConsumerManager } from '../processor/consumer-manager.service';
+import { ResolutionConsumerManager } from '../processor/resolution-consumer-manager.service';
 import { ProcessorService } from '../processor/processor.service';
 import { ApiKeyGuard } from '../auth/api-key.guard';
 
@@ -10,7 +10,7 @@ import { ApiKeyGuard } from '../auth/api-key.guard';
 @Controller('admin')
 export class AdminController {
   constructor(
-    private readonly consumerManager: ConsumerManager,
+    private readonly consumerManager: ResolutionConsumerManager,
     private readonly processorService: ProcessorService,
   ) {}
 

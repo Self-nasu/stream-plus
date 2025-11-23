@@ -34,6 +34,15 @@ export class Video {
 
   @Prop({ type: MongooseSchema.Types.Mixed })
   processingStatus: any;
+
+  @Prop([String])
+  availableResolutions: string[];
+
+  @Prop({ default: false })
+  isPlayable: boolean;
+
+  @Prop({ default: 0 })
+  masterPlaylistVersion: number;
 }
 
 export const VideoSchema = SchemaFactory.createForClass(Video);
