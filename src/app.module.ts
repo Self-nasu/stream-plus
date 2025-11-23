@@ -12,6 +12,7 @@ import { OrganizationModule } from './organization/organization.module';
 import { UploadModule } from './upload/upload.module';
 import { ProcessorModule } from './processor/processor.module';
 import { AdminModule } from './admin/admin.module';
+import { StreamModule } from './stream/stream.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { AdminModule } from './admin/admin.module';
     UploadModule,
     ProcessorModule,
     AdminModule,
+    StreamModule,
   ],
   controllers: [],
   providers: [],
