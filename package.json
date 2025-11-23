@@ -1,10 +1,10 @@
 {
   "name": "stream-plus",
   "version": "0.0.1",
-  "description": "",
-  "author": "",
-  "private": true,
-  "license": "UNLICENSED",
+  "description": "Production-grade video streaming platform with HLS transcoding and adaptive bitrate streaming",
+  "author": "Naman Jain",
+  "private": false,
+  "license": "MIT",
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
