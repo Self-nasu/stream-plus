@@ -6,7 +6,6 @@
 
 [![NestJS](https://img.shields.io/badge/NestJS-11.x-E0234E?logo=nestjs)](https://nestjs.com/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript)](https://www.typescriptlang.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 [Features](#features) • [Architecture](#architecture) • [Quick Start](#quick-start) • [API Documentation](#api-documentation)
 
@@ -127,7 +126,6 @@ src/
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/Self-nasu/stream-plus.git
    cd stream-plus
    ```
 
@@ -345,12 +343,3 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 - Cloud storage by [Azure Blob Storage](https://azure.microsoft.com/en-us/services/storage/blobs/)
 - Message queue by [Apache Kafka](https://kafka.apache.org/)
 
----
-
-<div align="center">
-
-**Made with ❤️ for scalable video streaming**
-
-[Report Bug](https://github.com/Self-nasu/stream-plus/issues) • [Request Feature](https://github.com/Self-nasu/stream-plus/issues)
-
-</div>
